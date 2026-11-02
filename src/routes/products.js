@@ -47,6 +47,44 @@ const productUpdateSchema = Joi.object({
 });
 
 
+/**
+ * @swagger
+ * /products:
+ *   get:
+ *     summary: Получить список товаров с фильтрацией и пагинацией
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *           enum: [electronics, clothing, food, other]
+ *         description: Фильтр по категории
+ *       - in: query
+ *         name: minPrice
+ *         schema:
+ *           type: number
+ *         description: Минимальная цена
+ *       - in: query
+ *         name: maxPrice
+ *         schema:
+ *           type: number
+ *         description: Максимальная цена
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Номер страницы
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Количество элементов на странице
+ *     responses:
+ *       200:
+ *         description: Успешный ответ со списком и пагинацией
+ */
 router.get('/', (req, res) => {
   let { category, minPrice, maxPrice, page = 1, limit = 10 } = req.query;
   let result = [...products];
@@ -76,6 +114,24 @@ router.get('/', (req, res) => {
 });
 
 
+/**
+ * @swagger
+ * /products/{id}:
+ *   get:
+ *     summary: Получить товар по ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID товара
+ *     responses:
+ *       200:
+ *         description: Объект товара
+ *       404:
+ *         description: Товар не найден
+ */
 router.get('/:id', (req, res, next) => {
   const product = products.find(p => p.id === parseInt(req.params.id));
   if (!product) {
@@ -87,6 +143,44 @@ router.get('/:id', (req, res, next) => {
 });
 
 
+/**
+ * @swagger
+ * /products:
+ *   post:
+ *     summary: Создать новый товар
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - price
+ *               - category
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: Беспроводные наушники
+ *               price:
+ *                 type: number
+ *                 example: 4999
+ *               category:
+ *                 type: string
+ *                 enum: [electronics, clothing, food, other]
+ *                 example: electronics
+ *               stock:
+ *                 type: integer
+ *                 example: 25
+ *               description:
+ *                 type: string
+ *                 example: Качественные наушники
+ *     responses:
+ *       201:
+ *         description: Товар успешно создан
+ *       400:
+ *         description: Ошибка валидации
+ */
 router.post('/', validate(productCreateSchema), (req, res) => {
   const newProduct = {
     id: nextId++,
@@ -103,6 +197,45 @@ router.post('/', validate(productCreateSchema), (req, res) => {
 });
 
 
+/**
+ * @swagger
+ * /products/{id}:
+ *   put:
+ *     summary: Полностью обновить товар по ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - price
+ *               - category
+ *             properties:
+ *               name:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               category:
+ *                 type: string
+ *                 enum: [electronics, clothing, food, other]
+ *               stock:
+ *                 type: integer
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Товар успешно обновлен
+ *       404:
+ *         description: Товар не найден
+ */
 router.put('/:id', validate(productCreateSchema), (req, res, next) => {
   const index = products.findIndex(p => p.id === parseInt(req.params.id));
   if (index === -1) {
@@ -126,6 +259,41 @@ router.put('/:id', validate(productCreateSchema), (req, res, next) => {
 });
 
 
+/**
+ * @swagger
+ * /products/{id}:
+ *   patch:
+ *     summary: Частично обновить товар по ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               category:
+ *                 type: string
+ *                 enum: [electronics, clothing, food, other]
+ *               stock:
+ *                 type: integer
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Товар успешно обновлен
+ *       404:
+ *         description: Товар не найден
+ */
 router.patch('/:id', validate(productUpdateSchema), (req, res, next) => {
   const index = products.findIndex(p => p.id === parseInt(req.params.id));
   if (index === -1) {
@@ -143,6 +311,23 @@ router.patch('/:id', validate(productUpdateSchema), (req, res, next) => {
 });
 
 
+/**
+ * @swagger
+ * /products/{id}:
+ *   delete:
+ *     summary: Удалить товар по ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Товар успешно удален
+ *       404:
+ *         description: Товар не найден
+ */
 router.delete('/:id', (req, res, next) => {
   const index = products.findIndex(p => p.id === parseInt(req.params.id));
   if (index === -1) {
@@ -156,6 +341,36 @@ router.delete('/:id', (req, res, next) => {
 });
 
 
+/**
+ * @swagger
+ * /products/{id}/image:
+ *   post:
+ *     summary: Загрузить изображение для товара
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Файл изображения для загрузки
+ *     responses:
+ *       200:
+ *         description: Изображение успешно загружено
+ *       400:
+ *         description: Файл не предоставлен
+ *       404:
+ *         description: Товар не найден
+ */
 router.post('/:id/image', upload.single('image'), (req, res, next) => {
   const product = products.find(p => p.id === parseInt(req.params.id));
   if (!product) {
