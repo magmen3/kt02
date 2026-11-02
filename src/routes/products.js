@@ -1,123 +1,249 @@
+
 const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
+
 const validate = require('../middleware/validate');
 const upload = require('../middleware/upload');
 
+// ======================================
+// ТОВАРЫ
+// ======================================
 
 let products = [
   {
     id: 1,
-    name: "Беспроводные наушники",
+    name: 'Беспроводные наушники',
     price: 4999,
-    category: "electronics",
+    category: 'electronics',
     stock: 25,
-    description: "Качественные наушники с активным шумоподавлением",
-    imageUrl: "",
+    description: 'Качественные наушники с активным шумоподавлением',
+    imageUrl: '',
     createdAt: new Date().toISOString()
   },
   {
     id: 2,
-    name: "Джинсы классические",
+    name: 'Джинсы классические',
     price: 2999,
-    category: "clothing",
+    category: 'clothing',
     stock: 15,
-    description: "Удобные джинсы из плотного хлопка",
-    imageUrl: "",
+    description: 'Удобные джинсы из плотного хлопка',
+    imageUrl: '',
     createdAt: new Date().toISOString()
   }
 ];
+
 let nextId = 3;
 
+// ======================================
+// JOI VALIDATION
+// ======================================
 
 const productCreateSchema = Joi.object({
-  name: Joi.string().min(2).max(100).required(),
+  name: Joi.string().trim().min(2).max(100).required(),
   price: Joi.number().greater(0).required(),
-  category: Joi.string().valid('electronics', 'clothing', 'food', 'other').required(),
+  category: Joi.string()
+    .valid('electronics', 'clothing', 'food', 'other')
+    .required(),
   stock: Joi.number().integer().min(0).default(0),
-  description: Joi.string().max(500).allow('', null)
+  description: Joi.string().max(500).allow('', null).default('')
 });
 
 const productUpdateSchema = Joi.object({
-  name: Joi.string().min(2).max(100),
+  name: Joi.string().trim().min(2).max(100),
   price: Joi.number().greater(0),
-  category: Joi.string().valid('electronics', 'clothing', 'food', 'other'),
+  category: Joi.string()
+    .valid('electronics', 'clothing', 'food', 'other'),
   stock: Joi.number().integer().min(0),
   description: Joi.string().max(500).allow('', null)
-});
+}).min(1);
 
+// ======================================
+// HELPERS
+// ======================================
+
+const findProduct = id =>
+  products.find(p => p.id === Number(id));
+
+const notFoundError = () => {
+  const error = new Error('Товар не найден');
+  error.statusCode = 404;
+  return error;
+};
+
+const removeEmptyPatchFields = (req, res, next) => {
+  for (const [key, value] of Object.entries(req.body)) {
+    if (value === '' && key !== 'description') {
+      delete req.body[key];
+    }
+  }
+  next();
+};
+
+// ======================================
+// GET /products
+// СПИСОК ТОВАРОВ
+// ======================================
 
 /**
  * @swagger
  * /products:
  *   get:
- *     summary: Получить список товаров с фильтрацией и пагинацией
+ *     tags:
+ *       - Products
+ *     summary: Получить список товаров
+ *     description: Список с фильтрацией, поиском и пагинацией.
  *     parameters:
  *       - in: query
  *         name: category
  *         schema:
  *           type: string
  *           enum: [electronics, clothing, food, other]
- *         description: Фильтр по категории
+ *         description: Категория товара
  *       - in: query
  *         name: minPrice
  *         schema:
  *           type: number
+ *           minimum: 0
  *         description: Минимальная цена
  *       - in: query
  *         name: maxPrice
  *         schema:
  *           type: number
+ *           minimum: 0
  *         description: Максимальная цена
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Поиск по названию
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
+ *           minimum: 1
  *           default: 1
  *         description: Номер страницы
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 100
  *           default: 10
- *         description: Количество элементов на странице
+ *         description: Количество товаров
  *     responses:
  *       200:
- *         description: Успешный ответ со списком и пагинацией
+ *         description: Список успешно получен
+ *       400:
+ *         description: Некорректные параметры
  */
+
 router.get('/', (req, res) => {
-  let { category, minPrice, maxPrice, page = 1, limit = 10 } = req.query;
+  let {
+    category,
+    minPrice,
+    maxPrice,
+    search,
+    page = 1,
+    limit = 10
+  } = req.query;
+
+  page = Number(page);
+  limit = Number(limit);
+
+  if (
+    !Number.isInteger(page) || page < 1 ||
+    !Number.isInteger(limit) || limit < 1 || limit > 100
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Некорректные параметры пагинации'
+    });
+  }
+
+  if (
+    minPrice !== undefined &&
+    (!Number.isFinite(Number(minPrice)) || Number(minPrice) < 0)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Некорректная минимальная цена'
+    });
+  }
+
+  if (
+    maxPrice !== undefined &&
+    (!Number.isFinite(Number(maxPrice)) || Number(maxPrice) < 0)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Некорректная максимальная цена'
+    });
+  }
+
+  if (
+    minPrice !== undefined &&
+    maxPrice !== undefined &&
+    Number(minPrice) > Number(maxPrice)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Минимальная цена больше максимальной'
+    });
+  }
+
   let result = [...products];
 
   if (category) {
     result = result.filter(p => p.category === category);
   }
+
   if (minPrice !== undefined) {
     result = result.filter(p => p.price >= Number(minPrice));
   }
+
   if (maxPrice !== undefined) {
     result = result.filter(p => p.price <= Number(maxPrice));
   }
 
+  if (search) {
+    result = result.filter(p =>
+      p.name.toLowerCase().includes(String(search).toLowerCase())
+    );
+  }
+
   const total = result.length;
-  page = parseInt(page);
-  limit = parseInt(limit);
-  const startIndex = (page - 1) * limit;
-  const paginatedData = result.slice(startIndex, startIndex + limit);
+  const totalPages = Math.ceil(total / limit);
+
+  const data = result.slice(
+    (page - 1) * limit,
+    page * limit
+  );
 
   res.json({
-    data: paginatedData,
-    total,
-    page,
-    limit
+    success: true,
+    data,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages
+    }
   });
 });
 
+// ======================================
+// GET /products/:id
+// ПОЛУЧИТЬ ТОВАР
+// ======================================
 
 /**
  * @swagger
  * /products/{id}:
  *   get:
+ *     tags:
+ *       - Products
  *     summary: Получить товар по ID
  *     parameters:
  *       - in: path
@@ -128,30 +254,40 @@ router.get('/', (req, res) => {
  *         description: ID товара
  *     responses:
  *       200:
- *         description: Объект товара
+ *         description: Товар найден
  *       404:
  *         description: Товар не найден
  */
+
 router.get('/:id', (req, res, next) => {
-  const product = products.find(p => p.id === parseInt(req.params.id));
-  if (!product) {
-    const error = new Error('Товар не найден');
-    error.statusCode = 404;
-    return next(error);
-  }
-  res.json(product);
+  const product = findProduct(req.params.id);
+
+  if (!product) return next(notFoundError());
+
+  res.json({
+    success: true,
+    product
+  });
 });
 
+// ======================================
+// POST /products
+// СОЗДАТЬ ТОВАР
+// ======================================
 
 /**
  * @swagger
  * /products:
  *   post:
- *     summary: Создать новый товар
+ *     tags:
+ *       - Products
+ *     summary: Создать товар
+ *     description: Заполните поля формы для создания товара.
+ *     operationId: createProduct
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         application/x-www-form-urlencoded:
  *           schema:
  *             type: object
  *             required:
@@ -161,47 +297,66 @@ router.get('/:id', (req, res, next) => {
  *             properties:
  *               name:
  *                 type: string
- *                 example: Беспроводные наушники
+ *                 minLength: 2
+ *                 maxLength: 100
+ *                 description: Название товара
  *               price:
  *                 type: number
- *                 example: 4999
+ *                 exclusiveMinimum: 0
+ *                 description: Цена
  *               category:
  *                 type: string
  *                 enum: [electronics, clothing, food, other]
- *                 example: electronics
+ *                 description: Категория
  *               stock:
  *                 type: integer
- *                 example: 25
+ *                 minimum: 0
+ *                 description: Количество на складе
  *               description:
  *                 type: string
- *                 example: Качественные наушники
+ *                 maxLength: 500
+ *                 description: Описание
  *     responses:
  *       201:
- *         description: Товар успешно создан
+ *         description: Товар создан
  *       400:
  *         description: Ошибка валидации
  */
+
 router.post('/', validate(productCreateSchema), (req, res) => {
   const newProduct = {
     id: nextId++,
     name: req.body.name,
     price: req.body.price,
     category: req.body.category,
-    stock: req.body.stock !== undefined ? req.body.stock : 0,
-    description: req.body.description || '',
+    stock: req.body.stock ?? 0,
+    description: req.body.description ?? '',
     imageUrl: '',
     createdAt: new Date().toISOString()
   };
+
   products.push(newProduct);
-  res.status(201).json(newProduct);
+
+  res.status(201).json({
+    success: true,
+    message: 'Товар успешно создан',
+    product: newProduct
+  });
 });
 
+// ======================================
+// PUT /products/:id
+// ПОЛНОЕ ОБНОВЛЕНИЕ
+// ======================================
 
 /**
  * @swagger
  * /products/{id}:
  *   put:
- *     summary: Полностью обновить товар по ID
+ *     tags:
+ *       - Products
+ *     summary: Полностью обновить товар
+ *     description: Заполните все основные поля товара.
  *     parameters:
  *       - in: path
  *         name: id
@@ -211,7 +366,7 @@ router.post('/', validate(productCreateSchema), (req, res) => {
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         application/x-www-form-urlencoded:
  *           schema:
  *             type: object
  *             required:
@@ -221,101 +376,148 @@ router.post('/', validate(productCreateSchema), (req, res) => {
  *             properties:
  *               name:
  *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 100
  *               price:
  *                 type: number
+ *                 exclusiveMinimum: 0
  *               category:
  *                 type: string
  *                 enum: [electronics, clothing, food, other]
  *               stock:
  *                 type: integer
+ *                 minimum: 0
  *               description:
  *                 type: string
+ *                 maxLength: 500
  *     responses:
  *       200:
- *         description: Товар успешно обновлен
+ *         description: Товар обновлен
+ *       400:
+ *         description: Ошибка валидации
  *       404:
  *         description: Товар не найден
  */
+
 router.put('/:id', validate(productCreateSchema), (req, res, next) => {
-  const index = products.findIndex(p => p.id === parseInt(req.params.id));
-  if (index === -1) {
-    const error = new Error('Товар не найден');
-    error.statusCode = 404;
-    return next(error);
-  }
+  const index = products.findIndex(
+    p => p.id === Number(req.params.id)
+  );
+
+  if (index === -1) return next(notFoundError());
 
   products[index] = {
-    id: products[index].id,
+    ...products[index],
     name: req.body.name,
     price: req.body.price,
     category: req.body.category,
-    stock: req.body.stock !== undefined ? req.body.stock : 0,
-    description: req.body.description || '',
-    imageUrl: products[index].imageUrl,
-    createdAt: products[index].createdAt
+    stock: req.body.stock ?? 0,
+    description: req.body.description ?? ''
   };
 
-  res.json(products[index]);
+  res.json({
+    success: true,
+    message: 'Товар полностью обновлен',
+    product: products[index]
+  });
 });
 
+// ======================================
+// PATCH /products/:id
+// ЧАСТИЧНОЕ ОБНОВЛЕНИЕ
+// ======================================
 
 /**
  * @swagger
  * /products/{id}:
  *   patch:
- *     summary: Частично обновить товар по ID
+ *     tags:
+ *       - Products
+ *     summary: Изменить отдельные параметры товара
+ *     description: >
+ *       Заполните только те поля, которые хотите изменить.
+ *       Остальные параметры останутся без изменений.
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: integer
+ *         description: ID товара
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         application/x-www-form-urlencoded:
  *           schema:
  *             type: object
+ *             minProperties: 1
  *             properties:
  *               name:
  *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 100
+ *                 description: Новое название
  *               price:
  *                 type: number
+ *                 exclusiveMinimum: 0
+ *                 description: Новая цена
  *               category:
  *                 type: string
  *                 enum: [electronics, clothing, food, other]
+ *                 description: Новая категория
  *               stock:
  *                 type: integer
+ *                 minimum: 0
+ *                 description: Новое количество
  *               description:
  *                 type: string
+ *                 maxLength: 500
+ *                 description: Новое описание
  *     responses:
  *       200:
- *         description: Товар успешно обновлен
+ *         description: Параметры обновлены
+ *       400:
+ *         description: Ошибка валидации
  *       404:
  *         description: Товар не найден
  */
-router.patch('/:id', validate(productUpdateSchema), (req, res, next) => {
-  const index = products.findIndex(p => p.id === parseInt(req.params.id));
-  if (index === -1) {
-    const error = new Error('Товар не найден');
-    error.statusCode = 404;
-    return next(error);
+
+router.patch(
+  '/:id',
+  removeEmptyPatchFields,
+  validate(productUpdateSchema),
+  (req, res, next) => {
+    const index = products.findIndex(
+      p => p.id === Number(req.params.id)
+    );
+
+    if (index === -1) return next(notFoundError());
+
+    products[index] = {
+      ...products[index],
+      ...req.body
+    };
+
+    res.json({
+      success: true,
+      message: 'Параметры товара успешно обновлены',
+      product: products[index]
+    });
   }
+);
 
-  products[index] = {
-    ...products[index],
-    ...req.body
-  };
-
-  res.json(products[index]);
-});
-
+// ======================================
+// DELETE /products/:id
+// УДАЛЕНИЕ ТОВАРА
+// ======================================
 
 /**
  * @swagger
  * /products/{id}:
  *   delete:
- *     summary: Удалить товар по ID
+ *     tags:
+ *       - Products
+ *     summary: Удалить товар
  *     parameters:
  *       - in: path
  *         name: id
@@ -324,28 +526,40 @@ router.patch('/:id', validate(productUpdateSchema), (req, res, next) => {
  *           type: integer
  *     responses:
  *       200:
- *         description: Товар успешно удален
+ *         description: Товар удален
  *       404:
  *         description: Товар не найден
  */
-router.delete('/:id', (req, res, next) => {
-  const index = products.findIndex(p => p.id === parseInt(req.params.id));
-  if (index === -1) {
-    const error = new Error('Товар не найден');
-    error.statusCode = 404;
-    return next(error);
-  }
 
-  const deleted = products.splice(index, 1);
-  res.json({ message: 'Товар успешно удален', product: deleted[0] });
+router.delete('/:id', (req, res, next) => {
+  const index = products.findIndex(
+    p => p.id === Number(req.params.id)
+  );
+
+  if (index === -1) return next(notFoundError());
+
+  const deleted = products.splice(index, 1)[0];
+
+  res.json({
+    success: true,
+    message: 'Товар успешно удален',
+    product: deleted
+  });
 });
 
+// ======================================
+// POST /products/:id/image
+// ЗАГРУЗКА ИЗОБРАЖЕНИЯ
+// ======================================
 
 /**
  * @swagger
  * /products/{id}/image:
  *   post:
- *     summary: Загрузить изображение для товара
+ *     tags:
+ *       - Products
+ *     summary: Загрузить изображение товара
+ *     description: Выберите файл изображения на устройстве.
  *     parameters:
  *       - in: path
  *         name: id
@@ -358,26 +572,26 @@ router.delete('/:id', (req, res, next) => {
  *         multipart/form-data:
  *           schema:
  *             type: object
+ *             required:
+ *               - image
  *             properties:
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Файл изображения для загрузки
+ *                 description: Файл изображения
  *     responses:
  *       200:
- *         description: Изображение успешно загружено
+ *         description: Изображение загружено
  *       400:
  *         description: Файл не предоставлен
  *       404:
  *         description: Товар не найден
  */
+
 router.post('/:id/image', upload.single('image'), (req, res, next) => {
-  const product = products.find(p => p.id === parseInt(req.params.id));
-  if (!product) {
-    const error = new Error('Товар не найден');
-    error.statusCode = 404;
-    return next(error);
-  }
+  const product = findProduct(req.params.id);
+
+  if (!product) return next(notFoundError());
 
   if (!req.file) {
     const error = new Error('Файл изображения не был предоставлен');
@@ -386,7 +600,17 @@ router.post('/:id/image', upload.single('image'), (req, res, next) => {
   }
 
   product.imageUrl = `/uploads/products/${req.file.filename}`;
-  res.json({ message: 'Изображение успешно загружено', imageUrl: product.imageUrl, product });
+
+  res.json({
+    success: true,
+    message: 'Изображение успешно загружено',
+    imageUrl: product.imageUrl,
+    product
+  });
 });
+
+// ======================================
+// EXPORT
+// ======================================
 
 module.exports = router;
